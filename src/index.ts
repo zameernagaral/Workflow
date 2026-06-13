@@ -10,7 +10,7 @@ import { extractMeetingData } from './services/gemini';
 import { createJiraTickets } from './services/jira';
 import { createNotionPage } from './services/notion';
 import { postSummaryToSlack, requestHumanReview } from './services/slack';
-import { runMeetingCaptionBot } from './services/meetCaptionBot';
+import { sendBotToMeeting, pollBotStatus, getTranscript } from './services/recallApi';
 import { Logger } from './services/logger';
 import { ProcessedMeeting } from './types';
 
@@ -24,7 +24,7 @@ const FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID;
 const PROCESSED_FILES_PATH = path.join(__dirname, '../processed_files.json');
 
 interface BotStatus {
-  status: 'idle' | 'joining' | 'capturing' | 'completed' | 'failed';
+  status: 'idle' | 'joining' | 'capturing' | 'processing' | 'completed' | 'failed';
   meetingUrl?: string;
   meetingName?: string;
   capturedEntriesCount: number;
@@ -90,32 +90,48 @@ export async function processMeetingTranscript(transcriptText: string, meetingNa
       return;
     }
 
-    currentBotStatus.message = 'Creating Jira tickets...';
-    const jiraTicketUrls = await createJiraTickets(meetingData.actionItems);
-    currentBotStatus.jiraTicketCount = jiraTicketUrls.length;
-
-    currentBotStatus.message = 'Creating Notion database page...';
     const processedMeeting: ProcessedMeeting = {
       fileName: meetingName,
       transcript: transcriptText,
       meetingData,
-      jiraTicketUrls,
+      jiraTicketUrls: [],
     };
 
-    const notionUrl = await createNotionPage(processedMeeting);
-    processedMeeting.notionPageUrl = notionUrl;
-    currentBotStatus.notionPageUrl = notionUrl;
+    try {
+      currentBotStatus.message = 'Creating Jira tickets...';
+      const jiraTicketUrls = await createJiraTickets(meetingData.actionItems);
+      currentBotStatus.jiraTicketCount = jiraTicketUrls.length;
+      processedMeeting.jiraTicketUrls = jiraTicketUrls;
+    } catch (e: any) {
+      Logger.error('Failed to create Jira tickets', e);
+      currentBotStatus.jiraTicketCount = 0;
+    }
 
-    currentBotStatus.message = 'Posting summary to Slack...';
-    await postSummaryToSlack(processedMeeting);
-    currentBotStatus.slackPosted = true;
+    try {
+      currentBotStatus.message = 'Creating Notion database page...';
+      const notionUrl = await createNotionPage(processedMeeting);
+      processedMeeting.notionPageUrl = notionUrl;
+      currentBotStatus.notionPageUrl = notionUrl;
+    } catch (e: any) {
+      Logger.error('Failed to create Notion page', e);
+    }
+
+    try {
+      currentBotStatus.message = 'Posting summary to Slack...';
+      await postSummaryToSlack(processedMeeting);
+      currentBotStatus.slackPosted = true;
+    } catch (e: any) {
+      Logger.error('Failed to post to Slack', e);
+      currentBotStatus.slackPosted = false;
+      currentBotStatus.error = e.message;
+    }
 
     currentBotStatus.status = 'completed';
-    currentBotStatus.message = `Workflow completed successfully! Generated Notion Page and created ${jiraTicketUrls.length} Jira tickets.`;
+    currentBotStatus.message = `Workflow completed successfully! Generated Notion Page and created ${currentBotStatus.jiraTicketCount} Jira tickets.`;
 
     Logger.info(`Pipeline complete for: ${meetingName}`);
-    Logger.info(`  Notion: ${notionUrl}`);
-    Logger.info(`  Jira tickets: ${jiraTicketUrls.length}`);
+    Logger.info(`  Notion: ${currentBotStatus.notionPageUrl || 'Failed'}`);
+    Logger.info(`  Jira tickets: ${currentBotStatus.jiraTicketCount}`);
   } catch (err: any) {
     Logger.error(`Workflow processing failed for ${meetingName}`, err);
     currentBotStatus.status = 'failed';
@@ -284,16 +300,23 @@ function startServer() {
           // Run asynchronously — do not block the HTTP response
           setImmediate(async () => {
             try {
-              const transcript = await runMeetingCaptionBot(meetingUrl, (statusUpdate) => {
+              const bot = await sendBotToMeeting(meetingUrl);
+              
+              currentBotStatus.message = `Recall.ai bot created (ID: ${bot.id}). Waiting for bot to finish...`;
+              
+              await pollBotStatus(bot.id, (statusUpdate) => {
                 currentBotStatus = { ...currentBotStatus, ...statusUpdate };
               });
+              
+              const transcript = await getTranscript(bot.id);
+              
               if (transcript && transcript.trim().length > 0) {
                 await processMeetingTranscript(transcript, meetingName);
               } else {
-                Logger.warn(`No captions captured for ${meetingName}. Ensure captions were enabled during the meeting.`);
+                Logger.warn(`No transcript captured for ${meetingName}.`);
                 currentBotStatus.status = 'failed';
-                currentBotStatus.message = 'No captions were captured. Please verify captions are enabled and working in the Google Meet window.';
-                currentBotStatus.error = 'No captions captured';
+                currentBotStatus.message = 'No transcript was captured by Recall.ai.';
+                currentBotStatus.error = 'No transcript captured';
               }
             } catch (err: any) {
               Logger.error(`Meeting bot pipeline failed for ${meetingName}`, err);

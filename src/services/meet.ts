@@ -1,6 +1,5 @@
 import { google } from 'googleapis';
 import { getGoogleAuth } from './googleAuth';
-import { createFreeMeetingLink } from './meetingCreator';
 import { Logger } from './logger';
 
 export async function createMeetingSpace(): Promise<{ spaceName: string; meetingUri: string }> {
@@ -27,10 +26,8 @@ export async function createMeetingSpace(): Promise<{ spaceName: string; meeting
       msg.includes('not found');
 
     if (isWorkspaceError) {
-      Logger.info('Google Meet API not available (no Workspace required). Using free browser method...');
-      // Fall back to creating a real meet link via browser (free, works with any Google account)
-      const meetingUri = await createFreeMeetingLink();
-      return { spaceName: '', meetingUri };
+      Logger.warn('Google Meet API not available (no Workspace required).');
+      throw new Error('Workspace required for Google Meet API');
     }
 
     Logger.error('Unexpected error creating meeting space', apiError);
