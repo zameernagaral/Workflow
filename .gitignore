@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+
+# Build Output
+dist/
+build/
+
+# Environment Variables
+.env
+.env.*
+!.env.example
+
+# Sensitive Credentials
+google-credentials.json
+*.pem
+*.key
+
+# Application State & Logs
+workflow.log
+processed_files.json
+meet-bot-profile/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# Optional IDE / Editor files
+.vscode/
+.idea/

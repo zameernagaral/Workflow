@@ -1,0 +1,225 @@
+{
+  "name": "Production Meeting Automation",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "triggerOn": "folder",
+        "folderId": "YOUR_GOOGLE_DRIVE_FOLDER_ID",
+        "watchFor": "created",
+        "options": {}
+      },
+      "id": "gd-trigger-1",
+      "name": "Google Drive Trigger",
+      "type": "n8n-nodes-base.googleDriveTrigger",
+      "typeVersion": 1,
+      "position": [ 100, 300 ]
+    },
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": "={{ $json.id }}",
+        "options": {}
+      },
+      "id": "gd-download-1",
+      "name": "Download Transcript",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [ 300, 300 ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const textContent = $input.all()[0].binary.data.data; // Assumes base64 or text format depending on n8n binary setting\nreturn [{ json: { transcriptText: Buffer.from(textContent, 'base64').toString('utf8'), fileName: $('Google Drive Trigger').item.json.name } }];"
+      },
+      "id": "extract-text",
+      "name": "Extract Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [ 500, 300 ]
+    },
+    {
+      "parameters": {
+        "model": "gemini-1.5-pro",
+        "prompt": "={{$json.transcriptText}}",
+        "systemMessage": "You are an expert meeting assistant. Extract the summary, decisions, action items, assignees, due dates, and priority levels. Respond STRICTLY in JSON format with keys: 'summary', 'decisions', 'actionItems' (array with 'task', 'assignee', 'dueDate', 'priority'), and a 'confidence' score (0-100).",
+        "options": {
+          "responseMimeType": "application/json"
+        }
+      },
+      "id": "gemini-1",
+      "name": "Google Gemini",
+      "type": "@n8n/n8n-nodes-langchain.toolGemini",
+      "typeVersion": 1,
+      "position": [ 700, 300 ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = JSON.parse($input.all()[0].json.text);\nreturn [{ json: data }];"
+      },
+      "id": "parse-1",
+      "name": "Parse JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [ 900, 300 ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{$json.confidence}}",
+              "operation": "largerEqual",
+              "value2": 80
+            }
+          ]
+        }
+      },
+      "id": "if-1",
+      "name": "IF Confidence > 80",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [ 1100, 300 ]
+    },
+    {
+      "parameters": {
+        "channel": "#approvals",
+        "text": "=Low confidence ({{$json.confidence}}%). Please review meeting: {{$('Extract Text').item.json.fileName}}",
+        "blocksUi": true
+      },
+      "id": "slack-review",
+      "name": "Slack (Request Approval)",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [ 1300, 150 ]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "actionItems",
+        "options": {}
+      },
+      "id": "split-1",
+      "name": "Split In Batches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 2,
+      "position": [ 1300, 450 ]
+    },
+    {
+      "parameters": {
+        "project": "EN",
+        "issueType": "Task",
+        "summary": "={{$json.task}}",
+        "description": "=Assigned to: {{$json.assignee}}\\nDue: {{$json.dueDate}}\\nPriority: {{$json.priority}}"
+      },
+      "id": "jira-1",
+      "name": "Jira",
+      "type": "n8n-nodes-base.jira",
+      "typeVersion": 1,
+      "position": [ 1500, 450 ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "resource": "databasePage",
+        "databaseId": "YOUR_DATABASE_ID",
+        "title": "={{$('Extract Text').item.json.fileName}}",
+        "propertiesUi": {
+          "propertyValues": [
+            { "key": "Summary|rich_text", "textContent": "={{$('Parse JSON').item.json.summary}}" },
+            { "key": "Status|select", "selectValue": "Processed" },
+            { "key": "Processed At|date", "dateValue": "={{new Date().toISOString()}}" }
+          ]
+        }
+      },
+      "id": "notion-1",
+      "name": "Notion",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2,
+      "position": [ 1700, 300 ]
+    },
+    {
+      "parameters": {
+        "channel": "#engineering",
+        "text": "=Meeting {{$('Extract Text').item.json.fileName}} Processed. View Notion and Jira."
+      },
+      "id": "slack-final",
+      "name": "Slack (Final Summary)",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [ 1900, 300 ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://your-logging-server/log",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "timestamp", "value": "={{new Date().toISOString()}}" },
+            { "name": "status", "value": "SUCCESS" },
+            { "name": "meeting", "value": "={{$('Extract Text').item.json.fileName}}" }
+          ]
+        }
+      },
+      "id": "log-1",
+      "name": "Audit Logger",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [ 2100, 300 ],
+      "continueOnFail": true
+    }
+  ],
+  "connections": {
+    "Google Drive Trigger": {
+      "main": [ [ { "node": "Download Transcript", "type": "main", "index": 0 } ] ]
+    },
+    "Download Transcript": {
+      "main": [ [ { "node": "Extract Text", "type": "main", "index": 0 } ] ]
+    },
+    "Extract Text": {
+      "main": [ [ { "node": "Google Gemini", "type": "main", "index": 0 } ] ]
+    },
+    "Google Gemini": {
+      "main": [ [ { "node": "Parse JSON", "type": "main", "index": 0 } ] ]
+    },
+    "Parse JSON": {
+      "main": [ [ { "node": "IF Confidence > 80", "type": "main", "index": 0 } ] ]
+    },
+    "IF Confidence > 80": {
+      "main": [
+        [ { "node": "Split In Batches", "type": "main", "index": 0 } ],
+        [ { "node": "Slack (Request Approval)", "type": "main", "index": 0 } ]
+      ]
+    },
+    "Split In Batches": {
+      "main": [
+        [ { "node": "Jira", "type": "main", "index": 0 } ],
+        [ { "node": "Notion", "type": "main", "index": 0 } ]
+      ]
+    },
+    "Jira": {
+      "main": [ [ { "node": "Split In Batches", "type": "main", "index": 0 } ] ]
+    },
+    "Notion": {
+      "main": [ [ { "node": "Slack (Final Summary)", "type": "main", "index": 0 } ] ]
+    },
+    "Slack (Final Summary)": {
+      "main": [ [ { "node": "Audit Logger", "type": "main", "index": 0 } ] ]
+    }
+  },
+  "settings": {
+    "saveExecutionProgress": true,
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}

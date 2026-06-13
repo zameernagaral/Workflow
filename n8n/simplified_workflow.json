@@ -1,0 +1,65 @@
+{
+  "name": "Simplified Internship Automation",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "meeting-webhook",
+        "options": {}
+      },
+      "id": "webhook-1",
+      "name": "Webhook (Trigger)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [ 250, 300 ]
+    },
+    {
+      "parameters": {
+        "model": "gemini-1.5-pro",
+        "prompt": "={{$json.body.transcript}}",
+        "systemMessage": "You are an expert meeting assistant. Extract the summary, decisions, action items, assignees, due dates, and priority levels. Respond STRICTLY in JSON format with keys: 'summary', 'decisions', 'actionItems' (array with 'task', 'assignee', 'dueDate', 'priority'), and a 'confidence' score (0-100).",
+        "options": {
+          "responseMimeType": "application/json"
+        }
+      },
+      "id": "gemini-1",
+      "name": "Google Gemini",
+      "type": "@n8n/n8n-nodes-langchain.toolGemini",
+      "typeVersion": 1,
+      "position": [ 450, 300 ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = JSON.parse($input.all()[0].json.text);\nreturn [{ json: data }];"
+      },
+      "id": "parse-1",
+      "name": "Parse JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [ 650, 300 ]
+    },
+    {
+      "parameters": {
+        "channel": "#engineering",
+        "text": "=Meeting Processed. Priority: {{$json.actionItems[0].priority}}"
+      },
+      "id": "slack-1",
+      "name": "Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [ 850, 300 ]
+    }
+  ],
+  "connections": {
+    "Webhook (Trigger)": {
+      "main": [ [ { "node": "Google Gemini", "type": "main", "index": 0 } ] ]
+    },
+    "Google Gemini": {
+      "main": [ [ { "node": "Parse JSON", "type": "main", "index": 0 } ] ]
+    },
+    "Parse JSON": {
+      "main": [ [ { "node": "Slack", "type": "main", "index": 0 } ] ]
+    }
+  },
+  "settings": {}
+}
