@@ -14,6 +14,7 @@ export interface MeetingData {
 
 export interface ProcessedMeeting {
   fileName: string;
+  transcript?: string;
   meetingData: MeetingData;
   jiraTicketUrls: string[];
   notionPageUrl?: string;

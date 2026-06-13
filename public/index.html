@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Google Meet Automation Control Panel</title>
+  <!-- Google Fonts: Outfit -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  
+  <style>
+    :root {
+      --bg-gradient: linear-gradient(135deg, #090810 0%, #151226 100%);
+      --glass-bg: rgba(255, 255, 255, 0.03);
+      --glass-border: rgba(255, 255, 255, 0.07);
+      --accent-color: #8a2be2;
+      --accent-glow: rgba(138, 43, 226, 0.4);
+      --success-color: #00e676;
+      --success-glow: rgba(0, 230, 118, 0.3);
+      --failed-color: #ff1744;
+      --failed-glow: rgba(255, 23, 68, 0.3);
+      --text-main: #f3f3f6;
+      --text-secondary: #9a98a6;
+      --font-family: 'Outfit', sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background: var(--bg-gradient);
+      font-family: var(--font-family);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem 1rem;
+      overflow-x: hidden;
+    }
+
+    /* Floating glowing orbs background */
+    .orb {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(100px);
+      z-index: -1;
+      opacity: 0.25;
+    }
+    .orb-purple {
+      width: 400px;
+      height: 400px;
+      background: #8a2be2;
+      top: 10%;
+      left: 15%;
+    }
+    .orb-blue {
+      width: 500px;
+      height: 500px;
+      background: #00b0ff;
+      bottom: 10%;
+      right: 15%;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 680px;
+      z-index: 10;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 2.5rem;
+    }
+
+    h1 {
+      font-size: 2.5rem;
+      font-weight: 700;
+      background: linear-gradient(90deg, #b388ff, #00e5ff);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 0.5rem;
+      letter-spacing: -0.5px;
+    }
+
+    header p {
+      color: var(--text-secondary);
+      font-size: 1.1rem;
+      font-weight: 300;
+    }
+
+    /* Glassmorphism Card */
+    .card {
+      background: var(--glass-bg);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid var(--glass-border);
+      border-radius: 24px;
+      padding: 2.5rem;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
+      margin-bottom: 2rem;
+    }
+
+    .form-group {
+      margin-bottom: 1.5rem;
+      position: relative;
+    }
+
+    label {
+      display: block;
+      font-size: 0.9rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+      margin-bottom: 0.5rem;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    input[type="text"] {
+      width: 100%;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--glass-border);
+      border-radius: 12px;
+      padding: 0.9rem 1.2rem;
+      font-family: var(--font-family);
+      font-size: 1rem;
+      color: var(--text-main);
+      outline: none;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    input[type="text"]:focus {
+      border-color: var(--accent-color);
+      background: rgba(255, 255, 255, 0.08);
+      box-shadow: 0 0 15px var(--accent-glow);
+    }
+
+    button.btn {
+      width: 100%;
+      background: linear-gradient(135deg, #7c4dff 0%, #651fff 100%);
+      border: none;
+      border-radius: 12px;
+      color: var(--text-main);
+      padding: 1rem;
+      font-size: 1.1rem;
+      font-weight: 600;
+      font-family: var(--font-family);
+      cursor: pointer;
+      box-shadow: 0 4px 15px rgba(124, 77, 255, 0.4);
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+    }
+
+    button.btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(124, 77, 255, 0.6);
+      background: linear-gradient(135deg, #9065ff 0%, #7c4dff 100%);
+    }
+
+    button.btn:active {
+      transform: translateY(1px);
+    }
+
+    button.btn:disabled {
+      background: rgba(255, 255, 255, 0.1);
+      color: var(--text-secondary);
+      cursor: not-allowed;
+      box-shadow: none;
+      transform: none;
+    }
+
+    /* Dynamic Stepper Control */
+    .status-section {
+      margin-top: 2rem;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      padding-top: 2rem;
+    }
+
+    .status-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1.5rem;
+    }
+
+    .status-badge {
+      padding: 0.4rem 1rem;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .badge-idle {
+      background: rgba(154, 152, 166, 0.15);
+      color: var(--text-secondary);
+    }
+    .badge-joining {
+      background: rgba(0, 176, 255, 0.15);
+      color: #00b0ff;
+      animation: pulse 1.5s infinite;
+    }
+    .badge-capturing {
+      background: rgba(255, 145, 0, 0.15);
+      color: #ff9100;
+      animation: pulse 1.5s infinite;
+    }
+    .badge-completed {
+      background: rgba(0, 230, 118, 0.15);
+      color: var(--success-color);
+      box-shadow: 0 0 10px rgba(0, 230, 118, 0.2);
+    }
+    .badge-failed {
+      background: rgba(255, 23, 68, 0.15);
+      color: var(--failed-color);
+    }
+
+    .status-message {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.04);
+      border-radius: 12px;
+      padding: 1rem;
+      font-size: 0.95rem;
+      line-height: 1.5;
+      color: var(--text-main);
+      margin-bottom: 1.5rem;
+      min-height: 50px;
+    }
+
+    /* Stepper visualization */
+    .stepper {
+      display: flex;
+      justify-content: space-between;
+      position: relative;
+      margin-bottom: 2rem;
+    }
+    .stepper::before {
+      content: '';
+      position: absolute;
+      top: 15px;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: rgba(255, 255, 255, 0.08);
+      z-index: 1;
+    }
+    .stepper-progress {
+      position: absolute;
+      top: 15px;
+      left: 0;
+      width: 0%;
+      height: 2px;
+      background: var(--accent-color);
+      z-index: 2;
+      transition: width 0.5s ease;
+    }
+    .step {
+      position: relative;
+      z-index: 3;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.5rem;
+      flex: 1;
+    }
+    .step-circle {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: #151226;
+      border: 2px solid rgba(255, 255, 255, 0.08);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+      transition: all 0.4s ease;
+    }
+    .step-label {
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      transition: color 0.4s ease;
+    }
+
+    /* Stepper Active States */
+    .step.active .step-circle {
+      border-color: var(--accent-color);
+      color: var(--text-main);
+      box-shadow: 0 0 12px var(--accent-glow);
+      background: var(--accent-color);
+    }
+    .step.active .step-label {
+      color: var(--text-main);
+    }
+    .step.completed .step-circle {
+      border-color: var(--success-color);
+      background: var(--success-color);
+      color: #090810;
+      box-shadow: 0 0 10px var(--success-glow);
+    }
+    .step.completed .step-label {
+      color: var(--success-color);
+    }
+
+    /* Live Counter Overlay */
+    .live-stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+    .stat-box {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.04);
+      border-radius: 12px;
+      padding: 1rem;
+      text-align: center;
+    }
+    .stat-val {
+      font-size: 1.8rem;
+      font-weight: 700;
+      color: #00e5ff;
+      margin-top: 0.2rem;
+    }
+    .stat-label {
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    /* Integration Outputs */
+    .outputs {
+      display: flex;
+      flex-direction: column;
+      gap: 0.8rem;
+      margin-top: 1rem;
+    }
+    .output-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      padding: 0.8rem 1.2rem;
+      border-radius: 12px;
+      font-size: 0.95rem;
+      transition: all 0.3s ease;
+    }
+    .output-item:hover {
+      background: rgba(255, 255, 255, 0.04);
+      border-color: rgba(255, 255, 255, 0.1);
+    }
+    .output-label {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      font-weight: 500;
+    }
+    .output-item a {
+      color: #b388ff;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 0.9rem;
+      display: flex;
+      align-items: center;
+      gap: 0.2rem;
+      transition: color 0.2s ease;
+    }
+    .output-item a:hover {
+      color: #e040fb;
+      text-decoration: underline;
+    }
+    .output-status {
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+    .status-ok {
+      color: var(--success-color);
+    }
+    .status-pending {
+      color: var(--text-secondary);
+      font-style: italic;
+    }
+
+    /* Animations */
+    @keyframes pulse {
+      0% { opacity: 0.7; }
+      50% { opacity: 1; }
+      100% { opacity: 0.7; }
+    }
+
+    /* Footer styling */
+    footer {
+      text-align: center;
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+      margin-top: 1rem;
+    }
+
+    /* SVGs and Icons */
+    .icon {
+      width: 18px;
+      height: 18px;
+      fill: currentColor;
+    }
+  </style>
+</head>
+<body>
+  <div class="orb orb-purple"></div>
+  <div class="orb orb-blue"></div>
+
+  <div class="container">
+    <header>
+      <h1>Meeting Agent Control</h1>
+      <p>Automate your Google Meet transcript extraction, Notion documentation, and Jira ticket creation.</p>
+    </header>
+
+    <div class="card">
+      <form id="joinForm">
+        <div class="form-group">
+          <label for="meetingUrl">Google Meet URL</label>
+          <input type="text" id="meetingUrl" placeholder="https://meet.google.com/xxx-xxxx-xxx" required autocomplete="off">
+        </div>
+        <div class="form-group">
+          <label for="meetingName">Meeting Name (Optional)</label>
+          <input type="text" id="meetingName" placeholder="Weekly Sync / Project Alignment" autocomplete="off">
+        </div>
+        <button type="submit" class="btn" id="startBtn">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/></svg>
+          Deploy Captions Bot
+        </button>
+      </form>
+
+      <div class="status-section">
+        <div class="status-header">
+          <h3>Bot Deployment Status</h3>
+          <span id="statusBadge" class="status-badge badge-idle">
+            <span id="statusBadgeText">Idle</span>
+          </span>
+        </div>
+
+        <!-- Stepper -->
+        <div class="stepper">
+          <div class="stepper-progress" id="stepperProgress"></div>
+          <div class="step" id="step1">
+            <div class="step-circle">1</div>
+            <div class="step-label">Lobby</div>
+          </div>
+          <div class="step" id="step2">
+            <div class="step-circle">2</div>
+            <div class="step-label">Admitted</div>
+          </div>
+          <div class="step" id="step3">
+            <div class="step-circle">3</div>
+            <div class="step-label">Capturing</div>
+          </div>
+          <div class="step" id="step4">
+            <div class="step-circle">4</div>
+            <div class="step-label">Finished</div>
+          </div>
+        </div>
+
+        <div class="live-stats">
+          <div class="stat-box">
+            <div class="stat-label">Meeting Code</div>
+            <div id="statCode" class="stat-val">-</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-label">Captures Processed</div>
+            <div id="statCount" class="stat-val">0</div>
+          </div>
+        </div>
+
+        <div class="status-message" id="statusMessage">
+          Bot is currently idle. Enter a meeting URL and press deploy to launch the Playwright agent.
+        </div>
+
+        <!-- Outputs list -->
+        <div class="outputs" id="outputsContainer" style="display: none;">
+          <h4 style="margin-top: 1rem; margin-bottom: 0.5rem; font-size: 0.9rem; text-transform: uppercase; color: var(--text-secondary); letter-spacing: 0.5px;">Generated Outputs</h4>
+          
+          <div class="output-item" id="notionOutput">
+            <div class="output-label">
+              <svg class="icon" style="color: #ffffff;" viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
+              Notion Database Page
+            </div>
+            <div id="notionLinkContainer">
+              <span class="output-status status-pending">Pending</span>
+            </div>
+          </div>
+
+          <div class="output-item" id="jiraOutput">
+            <div class="output-label">
+              <svg class="icon" style="color: #0052cc;" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
+              Jira Action Tickets
+            </div>
+            <div id="jiraStatus">
+              <span class="output-status status-pending">Pending</span>
+            </div>
+          </div>
+
+          <div class="output-item" id="slackOutput">
+            <div class="output-label">
+              <svg class="icon" style="color: #ecb22e;" viewBox="0 0 24 24"><path d="M6 15a2 2 0 1 1-2-2h2v2zm1.5 0a1.5 1.5 0 0 1 1.5-1.5H12V15a1.5 1.5 0 0 1-1.5 1.5H9A1.5 1.5 0 0 1 7.5 15zM9 6a2 2 0 1 1 2 2V6h-2zm0 1.5a1.5 1.5 0 0 1 1.5 1.5v3H9a1.5 1.5 0 0 1-1.5-1.5V9A1.5 1.5 0 0 1 9 7.5zM18 9a2 2 0 1 1 2 2h-2V9zm-1.5 0a1.5 1.5 0 0 1-1.5 1.5H12V9a1.5 1.5 0 0 1 1.5-1.5H15A1.5 1.5 0 0 1 16.5 9zM15 18a2 2 0 1 1-2-2h2v2zm0-1.5a1.5 1.5 0 0 1-1.5-1.5v-3H15a1.5 1.5 0 0 1 1.5 1.5V15a1.5 1.5 0 0 1-1.5 1.5z"/></svg>
+              Slack Summary Broadcast
+            </div>
+            <div id="slackStatus">
+              <span class="output-status status-pending">Pending</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      Meeting Agent v1.1.0 &bull; Playwright & Gemini 3.5 Flash powered automation.
+    </footer>
+  </div>
+
+  <script>
+    const joinForm = document.getElementById('joinForm');
+    const meetingUrlInput = document.getElementById('meetingUrl');
+    const meetingNameInput = document.getElementById('meetingName');
+    const startBtn = document.getElementById('startBtn');
+    const statusBadge = document.getElementById('statusBadge');
+    const statusBadgeText = document.getElementById('statusBadgeText');
+    const statusMessage = document.getElementById('statusMessage');
+    const statCode = document.getElementById('statCode');
+    const statCount = document.getElementById('statCount');
+    const outputsContainer = document.getElementById('outputsContainer');
+    
+    // Links containers
+    const notionLinkContainer = document.getElementById('notionLinkContainer');
+    const jiraStatus = document.getElementById('jiraStatus');
+    const slackStatus = document.getElementById('slackStatus');
+
+    // Stepper elements
+    const stepperProgress = document.getElementById('stepperProgress');
+    const steps = [
+      document.getElementById('step1'),
+      document.getElementById('step2'),
+      document.getElementById('step3'),
+      document.getElementById('step4')
+    ];
+
+    let pollingInterval = null;
+
+    joinForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const url = meetingUrlInput.value.trim();
+      const name = meetingNameInput.value.trim();
+
+      if (!url.includes('meet.google.com')) {
+        alert('Please enter a valid Google Meet URL!');
+        return;
+      }
+
+      startBtn.disabled = true;
+      startBtn.innerHTML = `
+        <svg class="icon animate-spin" viewBox="0 0 24 24" style="animation: spin 1s linear infinite;"><path d="M12 4V2C6.48 2 2 6.48 2 12h2c0-4.41 3.59-8 8-8zm0 16v2c5.52 0 10-4.48 10-10h-2c0 4.41-3.59 8-8 8z"/></svg>
+        Launching Agent...
+      `;
+
+      try {
+        const response = await fetch('/join-meeting', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ url, name })
+        });
+
+        const data = await response.json();
+        
+        if (response.ok) {
+          // Reset UI
+          outputsContainer.style.display = 'none';
+          notionLinkContainer.innerHTML = '<span class="output-status status-pending">Pending</span>';
+          jiraStatus.innerHTML = '<span class="output-status status-pending">Pending</span>';
+          slackStatus.innerHTML = '<span class="output-status status-pending">Pending</span>';
+          
+          // Parse meeting code
+          const codeMatch = url.match(/meet\.google\.com\/([a-z-]+)/);
+          statCode.textContent = codeMatch ? codeMatch[1] : 'Active';
+
+          // Start polling status
+          startPolling();
+        } else {
+          alert(`Error: ${data.error || 'Failed to deploy bot.'}`);
+          startBtn.disabled = false;
+          startBtn.innerHTML = 'Deploy Captions Bot';
+        }
+      } catch (err) {
+        alert(`Failed to contact server: ${err.message}`);
+        startBtn.disabled = false;
+        startBtn.innerHTML = 'Deploy Captions Bot';
+      }
+    });
+
+    function startPolling() {
+      if (pollingInterval) clearInterval(pollingInterval);
+      
+      // Immediate poll
+      pollStatus();
+      
+      // Poll every 2s
+      pollingInterval = setInterval(pollStatus, 2000);
+    }
+
+    async function pollStatus() {
+      try {
+        const res = await fetch('/api/status');
+        if (!res.ok) return;
+        const data = await res.json();
+        
+        updateUI(data);
+
+        // If completed or failed, stop polling and re-enable deployment
+        if (data.status === 'completed' || data.status === 'failed' || data.status === 'idle') {
+          clearInterval(pollingInterval);
+          pollingInterval = null;
+          startBtn.disabled = false;
+          startBtn.innerHTML = `
+            <svg class="icon" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/></svg>
+            Deploy Captions Bot
+          `;
+        }
+      } catch (err) {
+        console.error('Status poll failed', err);
+      }
+    }
+
+    function updateUI(data) {
+      // Update badge
+      statusBadge.className = `status-badge badge-${data.status}`;
+      statusBadgeText.textContent = data.status;
+
+      // Update message
+      statusMessage.textContent = data.message || 'Polling status...';
+      if (data.error && data.status === 'failed') {
+        statusMessage.textContent += ` (Error: ${data.error})`;
+      }
+
+      // Update caption counter
+      statCount.textContent = data.capturedEntriesCount || 0;
+
+      // Update stepper and progress bar
+      let progressWidth = '0%';
+      steps.forEach(s => s.className = 'step');
+
+      if (data.status === 'joining') {
+        steps[0].classList.add('active');
+        progressWidth = '15%';
+      } else if (data.status === 'capturing') {
+        steps[0].classList.add('completed');
+        steps[1].classList.add('active');
+        steps[2].classList.add('active');
+        progressWidth = '66%';
+      } else if (data.status === 'completed') {
+        steps.forEach(s => s.classList.add('completed'));
+        progressWidth = '100%';
+      } else if (data.status === 'failed') {
+        // Mark current as failed, or reset
+        progressWidth = '0%';
+      }
+      stepperProgress.style.width = progressWidth;
+
+      // Update outputs container
+      if (data.status === 'completed' || data.notionPageUrl || data.jiraTicketCount !== undefined || data.slackPosted) {
+        outputsContainer.style.display = 'block';
+        
+        // Notion output
+        if (data.notionPageUrl) {
+          notionLinkContainer.innerHTML = `<a href="${data.notionPageUrl}" target="_blank" rel="noopener">Open in Notion <svg style="width: 14px; height: 14px;" viewBox="0 0 24 24"><path fill="currentColor" d="M14 3h7v7h-2V6.4L9.4 16 8 14.6 17.6 5H14V3zM5 5h5v2H5v12h12v-5h2v7H3V5h2z"/></svg></a>`;
+        } else if (data.status === 'completed') {
+          notionLinkContainer.innerHTML = '<span class="output-status status-pending">Not Created</span>';
+        }
+        
+        // Jira output
+        if (data.jiraTicketCount !== undefined) {
+          jiraStatus.innerHTML = `<span class="output-status status-ok">${data.jiraTicketCount} Tickets Created</span>`;
+        } else if (data.status === 'completed') {
+          jiraStatus.innerHTML = '<span class="output-status status-ok">0 Tickets Created</span>';
+        }
+        
+        // Slack output
+        if (data.slackPosted) {
+          slackStatus.innerHTML = '<span class="output-status status-ok">Summary Broadcasted</span>';
+        } else if (data.status === 'completed') {
+          slackStatus.innerHTML = '<span class="output-status status-pending">Not Posted</span>';
+        }
+      }
+    }
+
+    // Keyframe spinner in styles
+    const spinStyle = document.createElement('style');
+    spinStyle.innerHTML = `
+      @keyframes spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+      }
+    `;
+    document.head.appendChild(spinStyle);
+  </script>
+</body>
+</html>

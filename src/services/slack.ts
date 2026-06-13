@@ -7,59 +7,80 @@ dotenv.config();
 const slack = new WebClient(process.env.SLACK_BOT_TOKEN);
 const channelId = process.env.SLACK_CHANNEL_ID!;
 
-export async function postSummaryToSlack(meeting: ProcessedMeeting): Promise<void> {
+async function postMessage(payload: { text: string; blocks?: any[] }): Promise<boolean> {
   try {
-    const blocks = [
-      {
-        type: "header",
-        text: {
-          type: "plain_text",
-          text: `Meeting Processed: ${meeting.fileName}`
-        }
-      },
-      {
-        type: "section",
-        text: {
-          type: "mrkdwn",
-          text: `*Summary:*\n${meeting.meetingData.summary}`
-        }
-      },
-      {
-        type: "section",
-        text: {
-          type: "mrkdwn",
-          text: `*Jira Tickets Created:* ${meeting.jiraTicketUrls.length}\n*Notion Page:* ${meeting.notionPageUrl || 'N/A'}`
-        }
-      }
-    ];
-
-    try {
-      await slack.conversations.join({ channel: channelId });
-    } catch (joinError: any) {
-      Logger.warn(`Could not join channel (might already be in it or lacking permissions): ${joinError.message}`);
-    }
-
     await slack.chat.postMessage({
       channel: channelId,
-      text: `Meeting Processed: ${meeting.fileName}`,
-      blocks
+      ...payload,
     });
+    return true;
+  } catch (err: any) {
+    const code = err?.data?.error || err?.message || '';
 
-    Logger.info(`Successfully posted Slack summary for ${meeting.fileName}`);
-  } catch (error) {
-    Logger.error('Failed to post message to Slack', error);
-    // Don't throw, we don't want the workflow to fail entirely if just the notification fails.
+    if (code === 'not_in_channel' || code.includes('not_in_channel')) {
+      Logger.error(
+        `Slack bot is not in channel ${channelId}. ` +
+        `Fix: open that Slack channel and type  /invite @<your-bot-name>  then retry.`
+      );
+    } else if (code === 'channel_not_found') {
+      Logger.error(
+        `Slack channel ID "${channelId}" not found. ` +
+        `Check SLACK_CHANNEL_ID in your .env file.`
+      );
+    } else if (code.includes('invalid_auth') || code.includes('token')) {
+      Logger.error(
+        `Slack token is invalid or expired. ` +
+        `Check SLACK_BOT_TOKEN in your .env file.`
+      );
+    } else {
+      Logger.error(`Failed to post to Slack: ${code}`);
+    }
+    return false;
   }
 }
 
+export async function postSummaryToSlack(meeting: ProcessedMeeting): Promise<void> {
+  const actionItemLines = meeting.meetingData.actionItems
+    .map(a => `• *${a.task}* — ${a.assignee} (${a.priority}, due ${a.dueDate})`)
+    .join('\n');
+
+  const jiraSection = meeting.jiraTicketUrls.length > 0
+    ? meeting.jiraTicketUrls.map(u => `• <${u}|${u.split('/').pop()}>`).join('\n')
+    : 'No tickets created';
+
+  const blocks = [
+    {
+      type: 'header',
+      text: { type: 'plain_text', text: `Meeting Summary: ${meeting.fileName}` },
+    },
+    {
+      type: 'section',
+      text: { type: 'mrkdwn', text: `*Summary*\n${meeting.meetingData.summary}` },
+    },
+    { type: 'divider' },
+    {
+      type: 'section',
+      text: { type: 'mrkdwn', text: `*Action Items*\n${actionItemLines || '_None extracted_'}` },
+    },
+    {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `*Jira Tickets*\n${jiraSection}\n\n*Notion Page*\n${meeting.notionPageUrl ? `<${meeting.notionPageUrl}|Open in Notion>` : 'N/A'}`,
+      },
+    },
+  ];
+
+  const ok = await postMessage({
+    text: `Meeting processed: ${meeting.fileName} | Notion: ${meeting.notionPageUrl || 'N/A'}`,
+    blocks,
+  });
+  if (ok) Logger.info(`Slack summary posted for ${meeting.fileName}`);
+}
+
 export async function requestHumanReview(fileName: string, confidence: number): Promise<void> {
-  try {
-    await slack.chat.postMessage({
-      channel: channelId,
-      text: `⚠️ *Low Confidence Detected* (${confidence}%)\nThe transcript for ${fileName} was ambiguous. Action item creation has been paused. Please review manually.`,
-    });
-    Logger.info(`Requested human review for ${fileName}`);
-  } catch (error) {
-    Logger.error('Failed to post review request to Slack', error);
-  }
+  const ok = await postMessage({
+    text: `⚠️ Low Confidence (${confidence}%) — Manual review needed for: ${fileName}`,
+  });
+  if (ok) Logger.info(`Requested human review in Slack for ${fileName}`);
 }

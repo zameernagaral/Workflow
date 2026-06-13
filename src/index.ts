@@ -23,6 +23,24 @@ const FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID;
 
 const PROCESSED_FILES_PATH = path.join(__dirname, '../processed_files.json');
 
+interface BotStatus {
+  status: 'idle' | 'joining' | 'capturing' | 'completed' | 'failed';
+  meetingUrl?: string;
+  meetingName?: string;
+  capturedEntriesCount: number;
+  message?: string;
+  notionPageUrl?: string;
+  jiraTicketCount?: number;
+  slackPosted?: boolean;
+  error?: string;
+}
+
+let currentBotStatus: BotStatus = {
+  status: 'idle',
+  capturedEntriesCount: 0,
+  message: 'Bot is idle. Paste a Google Meet link below to start.',
+};
+
 function loadProcessedFiles(): Set<string> {
   try {
     if (fs.existsSync(PROCESSED_FILES_PATH)) {
@@ -51,36 +69,60 @@ const processedFilesCache = loadProcessedFiles();
  */
 export async function processMeetingTranscript(transcriptText: string, meetingName: string) {
   Logger.info(`Processing transcript for: ${meetingName}`);
+  currentBotStatus.status = 'capturing'; // update status to show processing is in progress
+  currentBotStatus.message = 'Meeting ended. Analyzing transcript with Gemini...';
 
   if (!transcriptText || transcriptText.trim().length === 0) {
     Logger.warn(`Empty transcript for ${meetingName}. Skipping.`);
+    currentBotStatus.status = 'failed';
+    currentBotStatus.message = 'Empty transcript. Skipping processing.';
     return;
   }
 
-  const meetingData = await extractMeetingData(transcriptText);
+  try {
+    const meetingData = await extractMeetingData(transcriptText);
 
-  if (meetingData.confidence < CONFIDENCE_THRESHOLD) {
-    Logger.warn(`Low confidence (${meetingData.confidence}%). Routing to manual review.`);
-    await requestHumanReview(meetingName, meetingData.confidence);
-    return;
+    if (meetingData.confidence < CONFIDENCE_THRESHOLD) {
+      Logger.warn(`Low confidence (${meetingData.confidence}%). Routing to manual review.`);
+      currentBotStatus.status = 'completed';
+      currentBotStatus.message = `Low confidence (${meetingData.confidence}%). Sent to Slack for manual review.`;
+      await requestHumanReview(meetingName, meetingData.confidence);
+      return;
+    }
+
+    currentBotStatus.message = 'Creating Jira tickets...';
+    const jiraTicketUrls = await createJiraTickets(meetingData.actionItems);
+    currentBotStatus.jiraTicketCount = jiraTicketUrls.length;
+
+    currentBotStatus.message = 'Creating Notion database page...';
+    const processedMeeting: ProcessedMeeting = {
+      fileName: meetingName,
+      transcript: transcriptText,
+      meetingData,
+      jiraTicketUrls,
+    };
+
+    const notionUrl = await createNotionPage(processedMeeting);
+    processedMeeting.notionPageUrl = notionUrl;
+    currentBotStatus.notionPageUrl = notionUrl;
+
+    currentBotStatus.message = 'Posting summary to Slack...';
+    await postSummaryToSlack(processedMeeting);
+    currentBotStatus.slackPosted = true;
+
+    currentBotStatus.status = 'completed';
+    currentBotStatus.message = `Workflow completed successfully! Generated Notion Page and created ${jiraTicketUrls.length} Jira tickets.`;
+
+    Logger.info(`Pipeline complete for: ${meetingName}`);
+    Logger.info(`  Notion: ${notionUrl}`);
+    Logger.info(`  Jira tickets: ${jiraTicketUrls.length}`);
+  } catch (err: any) {
+    Logger.error(`Workflow processing failed for ${meetingName}`, err);
+    currentBotStatus.status = 'failed';
+    currentBotStatus.message = `Processing failed: ${err?.message || err}`;
+    currentBotStatus.error = err?.message || String(err);
+    throw err;
   }
-
-  const jiraTicketUrls = await createJiraTickets(meetingData.actionItems);
-
-  const processedMeeting: ProcessedMeeting = {
-    fileName: meetingName,
-    meetingData,
-    jiraTicketUrls,
-  };
-
-  const notionUrl = await createNotionPage(processedMeeting);
-  processedMeeting.notionPageUrl = notionUrl;
-
-  await postSummaryToSlack(processedMeeting);
-
-  Logger.info(`Pipeline complete for: ${meetingName}`);
-  Logger.info(`  Notion: ${notionUrl}`);
-  Logger.info(`  Jira tickets: ${jiraTicketUrls.length}`);
 }
 
 /**
@@ -162,6 +204,32 @@ function startServer() {
   const server = http.createServer(async (req, res) => {
     const parsedUrl = url.parse(req.url || '', true);
 
+    // Dashboard Serve
+    if (req.method === 'GET' && parsedUrl.pathname === '/') {
+      const indexHtmlPath = path.join(__dirname, '../public/index.html');
+      try {
+        if (fs.existsSync(indexHtmlPath)) {
+          const html = fs.readFileSync(indexHtmlPath, 'utf-8');
+          res.writeHead(200, { 'Content-Type': 'text/html' });
+          res.end(html);
+        } else {
+          res.writeHead(404, { 'Content-Type': 'text/plain' });
+          res.end('Dashboard index.html not found. Please create it.');
+        }
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'text/plain' });
+        res.end('Failed to load dashboard: ' + String(err));
+      }
+      return;
+    }
+
+    // JSON status check
+    if (req.method === 'GET' && parsedUrl.pathname === '/api/status') {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify(currentBotStatus));
+      return;
+    }
+
     // Health check
     if (req.method === 'GET' && parsedUrl.pathname === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -197,6 +265,15 @@ function startServer() {
 
           const meetingName = name || `Meeting-${new Date().toISOString().slice(0, 19).replace('T', '_')}`;
 
+          // Reset global status tracker for new run
+          currentBotStatus = {
+            status: 'joining',
+            meetingUrl,
+            meetingName,
+            capturedEntriesCount: 0,
+            message: `Bot is opening Chrome and joining ${meetingUrl}...`,
+          };
+
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({
             status: 'started',
@@ -207,14 +284,22 @@ function startServer() {
           // Run asynchronously — do not block the HTTP response
           setImmediate(async () => {
             try {
-              const transcript = await runMeetingCaptionBot(meetingUrl);
+              const transcript = await runMeetingCaptionBot(meetingUrl, (statusUpdate) => {
+                currentBotStatus = { ...currentBotStatus, ...statusUpdate };
+              });
               if (transcript && transcript.trim().length > 0) {
                 await processMeetingTranscript(transcript, meetingName);
               } else {
                 Logger.warn(`No captions captured for ${meetingName}. Ensure captions were enabled during the meeting.`);
+                currentBotStatus.status = 'failed';
+                currentBotStatus.message = 'No captions were captured. Please verify captions are enabled and working in the Google Meet window.';
+                currentBotStatus.error = 'No captions captured';
               }
-            } catch (err) {
+            } catch (err: any) {
               Logger.error(`Meeting bot pipeline failed for ${meetingName}`, err);
+              currentBotStatus.status = 'failed';
+              currentBotStatus.error = err?.message || String(err);
+              currentBotStatus.message = `Pipeline failed: ${err?.message || err}`;
             }
           });
         } catch (parseErr) {

@@ -3,7 +3,8 @@ import { Logger } from './logger';
 import path from 'path';
 import fs from 'fs';
 
-const PROFILE_DIR = path.join(__dirname, '../../meet-bot-profile');
+// Separate profile from the caption bot so both can run without conflict
+const PROFILE_DIR = path.join(__dirname, '../../meet-creator-profile');
 
 /**
  * Creates a real Google Meet link for free by opening meet.google.com/new
